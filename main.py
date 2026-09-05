@@ -7,8 +7,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 from torch.utils.data import TensorDataset, DataLoader
 
 # Import the official models from the cloned repository
-from models.iTransformer import Model as iTransformerModel
-from models.Transformer import Model as TransformerModel
+from model.iTransformer import Model as iTransformerModel
 from preprocessing import fetch_stock_data, prepare_sequences
 
 
@@ -159,32 +158,23 @@ if __name__ == "__main__":
         num_variates=NUM_VARIATES,
     )
 
-    print("\n--- Training Official Transformer ---")
-    transformer_model = TransformerModel(configs)
-    train_model(transformer_model, train_loader, epochs=10)
-
     print("\n--- Training Official iTransformer ---")
     itransformer_model = iTransformerModel(configs)
     train_model(itransformer_model, train_loader, epochs=10)
 
     # 4. Evaluation
     print("\n--- Evaluation on Test Set ('Close' Price) ---")
-    t_preds, actuals, t_mae, t_rmse = evaluate_and_predict(
-        transformer_model, X_enc_test, X_dec_test, Y_test, scaler, PRED_LEN, CLOSE_IDX
-    )
+
     i_preds, _, i_mae, i_rmse = evaluate_and_predict(
         itransformer_model, X_enc_test, X_dec_test, Y_test, scaler, PRED_LEN, CLOSE_IDX
     )
 
-    print(f"Official Transformer  -> MAE: {t_mae:.4f}, RMSE: {t_rmse:.4f}")
     print(f"Official iTransformer -> MAE: {i_mae:.4f}, RMSE: {i_rmse:.4f}")
 
     # 5. Plotting
     sample_idx = 0
 
     plt.figure(figsize=(10, 6))
-    plt.plot(actuals[sample_idx], label="Actual Close Price", marker="o", color="black")
-    plt.plot(t_preds[sample_idx], label="Transformer", marker="x", color="blue")
     plt.plot(i_preds[sample_idx], label="iTransformer", marker="s", color="red")
 
     plt.title(f"{TICKER} Future {PRED_LEN} Days Prediction")
