@@ -165,7 +165,7 @@ if __name__ == "__main__":
     # 4. Evaluation
     print("\n--- Evaluation on Test Set ('Close' Price) ---")
 
-    i_preds, _, i_mae, i_rmse = evaluate_and_predict(
+    i_preds, actuals, i_mae, i_rmse = evaluate_and_predict(
         itransformer_model, X_enc_test, X_dec_test, Y_test, scaler, PRED_LEN, CLOSE_IDX
     )
 
@@ -175,6 +175,10 @@ if __name__ == "__main__":
     sample_idx = 0
 
     plt.figure(figsize=(10, 6))
+
+    # Thêm đường thực tế (Màu đen)
+    plt.plot(actuals[sample_idx], label="Actual Close Price", marker="o", color="black")
+    # Đường dự báo của iTransformer (Màu đỏ)
     plt.plot(i_preds[sample_idx], label="iTransformer", marker="s", color="red")
 
     plt.title(f"{TICKER} Future {PRED_LEN} Days Prediction")
