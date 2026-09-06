@@ -50,6 +50,8 @@ class MockConfig:
 def train_model(model, train_loader, epochs=1000, lr=0.001, device="cpu"):
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
+
+    # Đẩy model lên GPU/CPU
     model.to(device)
     model.train()
 
@@ -58,13 +60,18 @@ def train_model(model, train_loader, epochs=1000, lr=0.001, device="cpu"):
         for batch_x_enc, batch_x_dec, batch_y in train_loader:
             optimizer.zero_grad()
 
-            # Create dummy time markers (since we skip date parsing for simplicity)
+            # Đẩy data lên GPU/CPU
+            batch_x_enc = batch_x_enc.to(device)
+            batch_x_dec = batch_x_dec.to(device)
+            batch_y = batch_y.to(device)
+
+            # Create dummy time markers and move to device
             batch_x_mark_enc = torch.zeros(
                 batch_x_enc.shape[0], batch_x_enc.shape[1], 4
-            )
+            ).to(device)
             batch_x_mark_dec = torch.zeros(
                 batch_x_dec.shape[0], batch_x_dec.shape[1], 4
-            )
+            ).to(device)
 
             # Official models expect: x_enc, x_mark_enc, x_dec, x_mark_dec
             outputs = model(
@@ -82,31 +89,39 @@ def train_model(model, train_loader, epochs=1000, lr=0.001, device="cpu"):
             optimizer.step()
             total_loss += loss.item()
 
-        if (epoch + 1) % 100 == 0:
-            print(
-                f"Epoch {epoch + 1}/{epochs}, Loss: {total_loss/len(train_loader):.4f}"
-            )
+        if epoch % 100 == 0:
+            print(f"Epoch {epoch}/{epochs}, Loss: {total_loss/len(train_loader):.4f}")
 
 
 def evaluate_and_predict(
     model, X_enc, X_dec, Y_true, scaler, pred_len, close_idx=3, device="cpu"
 ):
+    # Đẩy model lên GPU/CPU
     model.to(device)
     model.eval()
+
     with torch.no_grad():
-        # Dummy time markers
-        X_mark_enc = torch.zeros(X_enc.shape[0], X_enc.shape[1], 4)
-        X_mark_dec = torch.zeros(X_dec.shape[0], X_dec.shape[1], 4)
+        # Đẩy test data lên GPU/CPU
+        X_enc = X_enc.to(device)
+        X_dec = X_dec.to(device)
+
+        # Dummy time markers to device
+        X_mark_enc = torch.zeros(X_enc.shape[0], X_enc.shape[1], 4).to(device)
+        X_mark_dec = torch.zeros(X_dec.shape[0], X_dec.shape[1], 4).to(device)
 
         preds = model(X_enc, X_mark_enc, X_dec, X_mark_dec)
         preds = preds[:, -pred_len:, :]  # Get only the future prediction window
 
     B, _, N = preds.shape
 
+    # Đưa preds từ GPU về lại CPU để sử dụng với Numpy và Sklearn
+    preds = preds.cpu()
+
     # Inverse transform
     preds_unscaled = scaler.inverse_transform(preds.reshape(-1, N)).reshape(
         B, pred_len, N
     )
+    # Y_true mặc định vẫn đang ở CPU nên không cần .cpu()
     y_test_unscaled = scaler.inverse_transform(Y_true.reshape(-1, N)).reshape(
         B, pred_len, N
     )
@@ -168,13 +183,16 @@ if __name__ == "__main__":
         num_variates=NUM_VARIATES,
     )
 
-    print("\n--- Training iTransformer ---")
+    print("\n--- Training Official iTransformer ---")
     itransformer_model = iTransformerModel(configs)
+
+    # Truyền tham số device vào hàm train
     train_model(itransformer_model, train_loader, epochs=1000, device=device)
 
     # 4. Evaluation
     print("\n--- Evaluation on Test Set ('Close' Price) ---")
 
+    # Truyền tham số device vào hàm dự báo
     i_preds, actuals, i_mae, i_rmse = evaluate_and_predict(
         itransformer_model,
         X_enc_test,
