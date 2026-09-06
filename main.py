@@ -47,9 +47,10 @@ class MockConfig:
 # ---------------------------------------------------------
 # Training and Evaluation
 # ---------------------------------------------------------
-def train_model(model, train_loader, epochs=1000, lr=0.001):
+def train_model(model, train_loader, epochs=1000, lr=0.001, device="cpu"):
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
+    model.to(device)
     model.train()
 
     for epoch in range(epochs):
@@ -81,11 +82,16 @@ def train_model(model, train_loader, epochs=1000, lr=0.001):
             optimizer.step()
             total_loss += loss.item()
 
-        if epoch % 100 == 0:
-            print(f"Epoch {epoch}/{epochs}, Loss: {total_loss/len(train_loader):.4f}")
+        if (epoch + 1) % 100 == 0:
+            print(
+                f"Epoch {epoch + 1}/{epochs}, Loss: {total_loss/len(train_loader):.4f}"
+            )
 
 
-def evaluate_and_predict(model, X_enc, X_dec, Y_true, scaler, pred_len, close_idx=3):
+def evaluate_and_predict(
+    model, X_enc, X_dec, Y_true, scaler, pred_len, close_idx=3, device="cpu"
+):
+    model.to(device)
     model.eval()
     with torch.no_grad():
         # Dummy time markers
@@ -122,6 +128,10 @@ def self_attention_model_check(model):
 # Main Execution
 # ---------------------------------------------------------
 if __name__ == "__main__":
+    # 0. Setup Device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"\n--- Using Device: {device} ---")
+
     # 1. Setup Parameters
     TICKER = "AAPL"
     START_DATE = "2015-01-01"
@@ -158,15 +168,22 @@ if __name__ == "__main__":
         num_variates=NUM_VARIATES,
     )
 
-    print("\n--- Training Official iTransformer ---")
+    print("\n--- Training iTransformer ---")
     itransformer_model = iTransformerModel(configs)
-    train_model(itransformer_model, train_loader, epochs=1000)
+    train_model(itransformer_model, train_loader, epochs=1000, device=device)
 
     # 4. Evaluation
     print("\n--- Evaluation on Test Set ('Close' Price) ---")
 
     i_preds, actuals, i_mae, i_rmse = evaluate_and_predict(
-        itransformer_model, X_enc_test, X_dec_test, Y_test, scaler, PRED_LEN, CLOSE_IDX
+        itransformer_model,
+        X_enc_test,
+        X_dec_test,
+        Y_test,
+        scaler,
+        PRED_LEN,
+        CLOSE_IDX,
+        device=device,
     )
 
     print(f"Official iTransformer -> MAE: {i_mae:.4f}, RMSE: {i_rmse:.4f}")
