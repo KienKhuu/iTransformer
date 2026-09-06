@@ -47,7 +47,7 @@ class MockConfig:
 # ---------------------------------------------------------
 # Training and Evaluation
 # ---------------------------------------------------------
-def train_model(model, train_loader, epochs=15, lr=0.001):
+def train_model(model, train_loader, epochs=1000, lr=0.001):
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
     model.train()
@@ -81,8 +81,8 @@ def train_model(model, train_loader, epochs=15, lr=0.001):
             optimizer.step()
             total_loss += loss.item()
 
-        if (epoch + 1) % 5 == 0:
-            print(f"Epoch {epoch+1}/{epochs}, Loss: {total_loss/len(train_loader):.4f}")
+        if epoch % 100 == 0:
+            print(f"Epoch {epoch}/{epochs}, Loss: {total_loss/len(train_loader):.4f}")
 
 
 def evaluate_and_predict(model, X_enc, X_dec, Y_true, scaler, pred_len, close_idx=3):
@@ -124,8 +124,8 @@ def self_attention_model_check(model):
 if __name__ == "__main__":
     # 1. Setup Parameters
     TICKER = "AAPL"
-    START_DATE = "2020-01-01"
-    END_DATE = "2023-01-01"
+    START_DATE = "2015-01-01"
+    END_DATE = "2026-01-01"
     SEQ_LEN = 96  # Standard look-back in iTransformer paper
     LABEL_LEN = 48  # Decoder overlap
     PRED_LEN = 24  # Forecast horizon
@@ -160,7 +160,7 @@ if __name__ == "__main__":
 
     print("\n--- Training Official iTransformer ---")
     itransformer_model = iTransformerModel(configs)
-    train_model(itransformer_model, train_loader, epochs=10)
+    train_model(itransformer_model, train_loader, epochs=1000)
 
     # 4. Evaluation
     print("\n--- Evaluation on Test Set ('Close' Price) ---")
