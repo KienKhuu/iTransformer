@@ -65,7 +65,7 @@ def train_model(model, train_loader, epochs=50, lr=0.001, device="cpu"):
             )
             outputs = outputs[:, -batch_y.shape[1] :, :]
 
-            loss = criterion(outputs, batch_y)
+            loss = criterion(outputs[:, :, 3], batch_y[:, :, 3])
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
@@ -127,9 +127,7 @@ if __name__ == "__main__":
 
     # 2. Fetch Data
     df = fetch_stock_data(TICKER, START_DATE, END_DATE)
-    NUM_VARIATES = df.shape[
-        1
-    ]  # Lúc này là 6 (Open, High, Low, Close, Volume, Log_Return)
+    NUM_VARIATES = df.shape[1]  # (Open, High, Low, Close, Volume, Log_Return)
     CLOSE_IDX = 3  # Position of 'Close' vẫn là 3
 
     X_enc, X_dec, Y, scaler, seq_split_idx = prepare_sequences(

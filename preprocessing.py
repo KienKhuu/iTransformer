@@ -25,9 +25,6 @@ def fetch_stock_data(ticker, start_date, end_date):
 
 
 def prepare_sequences(data, seq_len, label_len, pred_len, split_ratio=0.8):
-    """
-    Sửa lỗi Data Leakage bằng cách chỉ fit Scaler trên tập Train.
-    """
     split_idx = int(len(data) * split_ratio)
     train_data = data.iloc[:split_idx].values
 
