@@ -4,11 +4,7 @@ import numpy as np
 import torch
 from sklearn.preprocessing import StandardScaler
 
-
 def fetch_stock_data(ticker, start_date, end_date):
-    """
-    Fetches historical stock data from Yahoo Finance and adds Log Returns.
-    """
     print(f"Fetching data for {ticker} from {start_date} to {end_date}...")
     data = yf.download(ticker, start=start_date, end=end_date, progress=False)
 
@@ -16,21 +12,23 @@ def fetch_stock_data(ticker, start_date, end_date):
         data.columns = data.columns.droplevel(1)
 
     data = data[["Open", "High", "Low", "Close", "Volume"]].copy()
-
-    data["Log_Return"] = np.log(data["Close"] / data["Close"].shift(1))
-
+    data['Log_Return'] = np.log(data['Close'] / data['Close'].shift(1))
     data = data.dropna()
     print(f"Fetched {len(data)} rows of data.")
     return data
 
-
-def prepare_sequences(data, seq_len, label_len, pred_len, split_ratio=0.8):
-    split_idx = int(len(data) * split_ratio)
-    train_data = data.iloc[:split_idx].values
-
+def prepare_sequences(data, seq_len, label_len, pred_len, train_ratio=0.7, val_ratio=0.15):
+    """
+    Chia dữ liệu thành Train/Val/Test để phục vụ Early Stopping.
+    Chỉ fit Scaler trên tập Train.
+    """
+    train_split_idx = int(len(data) * train_ratio)
+    
+    # Chỉ Fit trên tập Train để chặn triệt để Data Leakage
+    train_data = data.iloc[:train_split_idx].values
     scaler = StandardScaler()
     scaler.fit(train_data)
-
+    
     scaled_data = scaler.transform(data.values)
 
     X_enc, X_dec, Y = [], [], []
@@ -51,6 +49,9 @@ def prepare_sequences(data, seq_len, label_len, pred_len, split_ratio=0.8):
     X_dec = torch.tensor(np.array(X_dec), dtype=torch.float32)
     Y = torch.tensor(np.array(Y), dtype=torch.float32)
 
-    seq_split_idx = int(len(X_enc) * split_ratio)
+    # Chia index cho 3 tập
+    total_seqs = len(X_enc)
+    train_end = int(total_seqs * train_ratio)
+    val_end = int(total_seqs * (train_ratio + val_ratio))
 
-    return X_enc, X_dec, Y, scaler, seq_split_idx
+    return X_enc, X_dec, Y, scaler, train_end, val_end
