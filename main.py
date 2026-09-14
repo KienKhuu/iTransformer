@@ -8,7 +8,7 @@ import os
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from torch.utils.data import TensorDataset, DataLoader
 
-from models.iTransformer import Model as iTransformerModel
+from model.iTransformer import Model as iTransformerModel
 from preprocessing import fetch_stock_data, prepare_sequences
 
 
