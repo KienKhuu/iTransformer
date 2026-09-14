@@ -4,39 +4,47 @@ import torch.optim as optim
 import matplotlib.pyplot as plt
 import numpy as np
 import copy
-import os
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from torch.utils.data import TensorDataset, DataLoader
 
-from model.iTransformer import Model as iTransformerModel
+from models.iTransformer import Model as iTransformerModel
 from preprocessing import fetch_stock_data, prepare_sequences
 
 
 # ---------------------------------------------------------
-# Helper Functions
+# Cấu hình và Tiện ích
 # ---------------------------------------------------------
 def set_seed(seed):
-    """Cố định Seed để kết quả có thể tái tạo (Reproducibility)"""
     torch.manual_seed(seed)
     np.random.seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
 
+def sinusoidal_encoding(seq_len, d_mark):
+    """
+    Tạo ma trận Sinusoidal Encoding dựa trên công thức của Transformer gốc.
+    Shape trả về: [seq_len, d_mark]
+    """
+    pe = torch.zeros(seq_len, d_mark)
+    position = torch.arange(0, seq_len, dtype=torch.float).unsqueeze(1)
+    div_term = torch.exp(
+        torch.arange(0, d_mark, 2).float() * (-np.log(10000.0) / d_mark)
+    )
+
+    pe[:, 0::2] = torch.sin(position * div_term)
+    pe[:, 1::2] = torch.cos(position * div_term)
+    return pe
+
+
 class MockConfig:
-    def __init__(self, seq_len, label_len, pred_len, num_variates):
+    def __init__(self, seq_len, pred_len, num_variates):
         self.seq_len = seq_len
-        self.label_len = label_len
         self.pred_len = pred_len
-        self.enc_in = num_variates
-        self.dec_in = num_variates
-        self.c_out = num_variates
         self.d_model = 64
         self.n_heads = 4
         self.e_layers = 2
-        self.d_layers = 1
         self.d_ff = 256
-        self.moving_avg = 25
         self.factor = 1
         self.dropout = 0.1
         self.embed = "timeF"
@@ -51,17 +59,12 @@ class MockConfig:
 # Training, Evaluation & Baseline
 # ---------------------------------------------------------
 def naive_baseline(X_enc, Y_true, scaler, pred_len, close_idx=3):
-    # Naive Baseline: Prediction[t] = Close[t-1]
     B, _, N = X_enc.shape
-
-    # Lấy giá trị cuối cùng của lịch sử (t-1)
-    last_known_scaled = X_enc[:, -1, :].numpy()  # shape: [B, N]
+    last_known_scaled = X_enc[:, -1, :].numpy()
     last_known_unscaled = scaler.inverse_transform(last_known_scaled)
-    last_close = last_known_unscaled[:, close_idx]  # shape: [B]
+    last_close = last_known_unscaled[:, close_idx]
 
-    preds_close = np.repeat(
-        last_close[:, np.newaxis], pred_len, axis=1
-    )  # shape: [B, pred_len]
+    preds_close = np.repeat(last_close[:, np.newaxis], pred_len, axis=1)
 
     y_unscaled = scaler.inverse_transform(Y_true.reshape(-1, N).numpy()).reshape(
         B, pred_len, N
@@ -78,7 +81,7 @@ def train_model(
     model,
     train_loader,
     val_loader,
-    epochs=50,
+    epochs=100,
     lr=0.001,
     device="cpu",
     patience=5,
@@ -86,62 +89,45 @@ def train_model(
 ):
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
-
     model.to(device)
 
     best_val_loss = float("inf")
     best_model_wts = copy.deepcopy(model.state_dict())
     counter = 0
 
-    for epoch in range(epochs):
-        # --- TRAIN ---
-        model.train()
-        train_loss = 0
-        for batch_x_enc, batch_x_dec, batch_y in train_loader:
-            optimizer.zero_grad()
-            batch_x_enc, batch_x_dec, batch_y = (
-                batch_x_enc.to(device),
-                batch_x_dec.to(device),
-                batch_y.to(device),
-            )
-            batch_x_mark_enc = torch.zeros(
-                batch_x_enc.shape[0], batch_x_enc.shape[1], 4
-            ).to(device)
-            batch_x_mark_dec = torch.zeros(
-                batch_x_dec.shape[0], batch_x_dec.shape[1], 4
-            ).to(device)
+    # Khởi tạo 1 lần Sinusoidal Tensor cho toàn bộ seq_len để tái sử dụng
+    seq_len = train_loader.dataset.tensors[0].shape[1]
+    base_sinusoidal = sinusoidal_encoding(seq_len, d_mark=4).to(device)
 
-            outputs = model(
-                batch_x_enc, batch_x_mark_enc, batch_x_dec, batch_x_mark_dec
+    for epoch in range(epochs):
+        model.train()
+        for batch_x_enc, batch_y in train_loader:
+            optimizer.zero_grad()
+            batch_x_enc, batch_y = batch_x_enc.to(device), batch_y.to(device)
+
+            # Mở rộng Sinusoidal cho khớp với Batch Size
+            batch_x_mark_enc = base_sinusoidal.unsqueeze(0).repeat(
+                batch_x_enc.shape[0], 1, 1
             )
+
+            # Đẩy None vào vị trí của x_dec và x_mark_dec
+            outputs = model(batch_x_enc, batch_x_mark_enc, None, None)
             outputs = outputs[:, -batch_y.shape[1] :, :]
 
-            # OPTIMIZE CLOSE PRICE
             loss = criterion(outputs[:, :, close_idx], batch_y[:, :, close_idx])
             loss.backward()
             optimizer.step()
-            train_loss += loss.item()
 
-        # --- VALIDATION ---
         model.eval()
         val_loss = 0
         with torch.no_grad():
-            for batch_x_enc, batch_x_dec, batch_y in val_loader:
-                batch_x_enc, batch_x_dec, batch_y = (
-                    batch_x_enc.to(device),
-                    batch_x_dec.to(device),
-                    batch_y.to(device),
+            for batch_x_enc, batch_y in val_loader:
+                batch_x_enc, batch_y = batch_x_enc.to(device), batch_y.to(device)
+                batch_x_mark_enc = base_sinusoidal.unsqueeze(0).repeat(
+                    batch_x_enc.shape[0], 1, 1
                 )
-                batch_x_mark_enc = torch.zeros(
-                    batch_x_enc.shape[0], batch_x_enc.shape[1], 4
-                ).to(device)
-                batch_x_mark_dec = torch.zeros(
-                    batch_x_dec.shape[0], batch_x_dec.shape[1], 4
-                ).to(device)
 
-                outputs = model(
-                    batch_x_enc, batch_x_mark_enc, batch_x_dec, batch_x_mark_dec
-                )
+                outputs = model(batch_x_enc, batch_x_mark_enc, None, None)
                 outputs = outputs[:, -batch_y.shape[1] :, :]
 
                 v_loss = criterion(outputs[:, :, close_idx], batch_y[:, :, close_idx])
@@ -149,7 +135,6 @@ def train_model(
 
         val_loss /= len(val_loader)
 
-        # --- EARLY STOPPING LOGIC ---
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             best_model_wts = copy.deepcopy(model.state_dict())
@@ -162,16 +147,19 @@ def train_model(
 
 
 def evaluate_and_predict(
-    model, X_enc, X_dec, Y_true, scaler, pred_len, close_idx=3, device="cpu"
+    model, X_enc, Y_true, scaler, pred_len, close_idx=3, device="cpu"
 ):
     model.to(device)
     model.eval()
-    with torch.no_grad():
-        X_enc, X_dec = X_enc.to(device), X_dec.to(device)
-        X_mark_enc = torch.zeros(X_enc.shape[0], X_enc.shape[1], 4).to(device)
-        X_mark_dec = torch.zeros(X_dec.shape[0], X_dec.shape[1], 4).to(device)
 
-        preds = model(X_enc, X_mark_enc, X_dec, X_mark_dec)
+    seq_len = X_enc.shape[1]
+    base_sinusoidal = sinusoidal_encoding(seq_len, d_mark=4).to(device)
+
+    with torch.no_grad():
+        X_enc = X_enc.to(device)
+        X_mark_enc = base_sinusoidal.unsqueeze(0).repeat(X_enc.shape[0], 1, 1)
+
+        preds = model(X_enc, X_mark_enc, None, None)
         preds = preds[:, -pred_len:, :].cpu()
 
     B, _, N = preds.shape
@@ -202,7 +190,6 @@ if __name__ == "__main__":
     START_DATE = "2015-01-01"
     END_DATE = "2026-01-01"
     SEQ_LEN = 60
-    LABEL_LEN = 30
     BATCH_SIZE = 32
     EPOCHS = 100
     SEEDS = [42, 123, 2026]
@@ -217,51 +204,33 @@ if __name__ == "__main__":
         print(f" EXPERIMENT: PREDICTION LENGTH = {PRED_LEN} ")
         print(f"=======================================================")
 
-        X_enc, X_dec, Y, scaler, train_end, val_end = prepare_sequences(
-            df, SEQ_LEN, LABEL_LEN, PRED_LEN, train_ratio=0.7, val_ratio=0.1
+        X_enc, Y, scaler, train_end, val_end = prepare_sequences(
+            df, SEQ_LEN, PRED_LEN, train_ratio=0.7, val_ratio=0.1
         )
 
-        # Train / Val / Test Splits
-        X_enc_train, X_dec_train, Y_train = (
-            X_enc[:train_end],
-            X_dec[:train_end],
-            Y[:train_end],
-        )
-        X_enc_val, X_dec_val, Y_val = (
-            X_enc[train_end:val_end],
-            X_dec[train_end:val_end],
-            Y[train_end:val_end],
-        )
-        X_enc_test, X_dec_test, Y_test = X_enc[val_end:], X_dec[val_end:], Y[val_end:]
+        X_enc_train, Y_train = X_enc[:train_end], Y[:train_end]
+        X_enc_val, Y_val = X_enc[train_end:val_end], Y[train_end:val_end]
+        X_enc_test, Y_test = X_enc[val_end:], Y[val_end:]
 
         train_loader = DataLoader(
-            TensorDataset(X_enc_train, X_dec_train, Y_train),
-            batch_size=BATCH_SIZE,
-            shuffle=False,
+            TensorDataset(X_enc_train, Y_train), batch_size=BATCH_SIZE, shuffle=True
         )
         val_loader = DataLoader(
-            TensorDataset(X_enc_val, X_dec_val, Y_val),
-            batch_size=BATCH_SIZE,
-            shuffle=False,
+            TensorDataset(X_enc_val, Y_val), batch_size=BATCH_SIZE, shuffle=False
         )
 
-        # --- 1. RUN NAIVE BASELINE ---
         naive_preds, actuals, naive_mae, naive_rmse = naive_baseline(
             X_enc_test, Y_test, scaler, PRED_LEN, CLOSE_IDX
         )
         print(f"[NAIVE BASELINE] MAE: {naive_mae:.4f} | RMSE: {naive_rmse:.4f}")
 
-        # --- 2. RUN iTRANSFORMER ACROSS SEEDS ---
         itrans_maes, itrans_rmses = [], []
-        best_preds = None  # Dùng để plot
+        best_preds = None
 
         for seed in SEEDS:
             set_seed(seed)
             configs = MockConfig(
-                seq_len=SEQ_LEN,
-                label_len=LABEL_LEN,
-                pred_len=PRED_LEN,
-                num_variates=NUM_VARIATES,
+                seq_len=SEQ_LEN, pred_len=PRED_LEN, num_variates=NUM_VARIATES
             )
             model = iTransformerModel(configs)
 
@@ -277,19 +246,12 @@ if __name__ == "__main__":
             )
 
             i_preds, _, i_mae, i_rmse = evaluate_and_predict(
-                model,
-                X_enc_test,
-                X_dec_test,
-                Y_test,
-                scaler,
-                PRED_LEN,
-                CLOSE_IDX,
-                device=device,
+                model, X_enc_test, Y_test, scaler, PRED_LEN, CLOSE_IDX, device=device
             )
 
             itrans_maes.append(i_mae)
             itrans_rmses.append(i_rmse)
-            best_preds = i_preds  # Giữ lại dự đoán của seed cuối cùng để vẽ chart
+            best_preds = i_preds
 
             print(f" - Seed {seed:4d} -> MAE: {i_mae:.4f} | RMSE: {i_rmse:.4f}")
 
@@ -297,14 +259,12 @@ if __name__ == "__main__":
         mean_rmse, std_rmse = np.mean(itrans_rmses), np.std(itrans_rmses)
 
         print(
-            f"\n[iTRANSFORMER FINAL] MAE: {mean_mae:.4f} ± {std_mae:.4f} | RMSE: {mean_rmse:.4f} ± {std_rmse:.4f}"
+            f"\n[iTRANSFORMER] MAE: {mean_mae:.4f} ± {std_mae:.4f} | RMSE: {mean_rmse:.4f} ± {std_rmse:.4f}"
         )
 
-        # --- 3. PLOTTING ---
         plt.figure(figsize=(12, 6))
 
         if PRED_LEN == 1:
-            # Nếu dự báo 1 ngày, nối các điểm lại và vẽ 100 ngày cuối
             plot_range = 100
             plt.plot(
                 actuals.flatten()[-plot_range:],
@@ -327,9 +287,7 @@ if __name__ == "__main__":
             )
             plt.title(f"{TICKER} - 1-Day Ahead Prediction (Last {plot_range} days)")
         else:
-            # Nếu dự báo 5 ngày, lấy sample cuối cùng để vẽ nguyên một đoạn 5 ngày
             sample_idx = -1
-            # Vẽ lịch sử trước đó (từ X_enc_test)
             hist_unscaled = scaler.inverse_transform(X_enc_test[sample_idx].numpy())[
                 :, CLOSE_IDX
             ]
@@ -368,4 +326,3 @@ if __name__ == "__main__":
         plt.tight_layout()
         plt.savefig(f"figure/prediction_{PRED_LEN}day_chart.png", dpi=300)
         plt.close()
-        print(f"[+] Save chart: prediction_{PRED_LEN}day_chart.png")
