@@ -17,7 +17,7 @@ class Model(nn.Module):
         )
         self.fc = nn.Linear(hidden_size, pred_len * num_variates)
 
-    def forward(self, x, x_mark_enc, x_dec, x_mark_dec):
+    def forward(self, x, *args, **kwargs):
         lstm_out, _ = self.lstm(x)  # [B, L, H]
         last_out = lstm_out[:, -1, :]
         out = self.fc(last_out)  # [B, pred_len * N]
