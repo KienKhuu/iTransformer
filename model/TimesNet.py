@@ -74,10 +74,6 @@ class TimesBlock(nn.Module):
 
 
 class Model(nn.Module):
-    """
-    Paper link: https://openreview.net/pdf?id=ju_Uqw384Oq
-    """
-
     def __init__(self, configs):
         super(Model, self).__init__()
         self.configs = configs

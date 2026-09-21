@@ -11,7 +11,7 @@ from torch.utils.data import TensorDataset, DataLoader
 from model.iTransformer import Model as iTransformerModel
 from model.PatchTST import Model as PatchTSTModel
 from model.LSTM import Model as LSTMModel
-from model.TimesNet import Model as TimesNetModel
+from model.TSMixer import Model as TSMixerModel
 from preprocessing import fetch_stock_data, prepare_sequences
 
 
@@ -38,7 +38,6 @@ def generate_sinusoidal_encoding(seq_len, d_mark):
 
 class MockConfig_iTransformer:
     def __init__(self, seq_len, pred_len, num_variates=None):
-        self.task_name = "long_term_forecast"
         self.seq_len = seq_len
         self.pred_len = pred_len
         self.d_model = 64
@@ -57,7 +56,6 @@ class MockConfig_iTransformer:
 
 class MockConfig_PatchTST:
     def __init__(self, seq_len, pred_len, num_variates):
-        self.task_name = "long_term_forecast"
         self.seq_len = seq_len
         self.label_len = 0
         self.pred_len = pred_len
@@ -83,22 +81,15 @@ class MockConfig_PatchTST:
         self.output_attention = False
 
 
-class MockConfig_TimesNet:
+class MockConfig_TSMixer:
     def __init__(self, seq_len, pred_len, num_variates):
         self.task_name = "long_term_forecast"
         self.seq_len = seq_len
-        self.label_len = 0
         self.pred_len = pred_len
         self.enc_in = num_variates
-        self.c_out = num_variates
         self.d_model = 64
-        self.d_ff = 256
         self.e_layers = 2
         self.dropout = 0.1
-        self.embed = "timeF"
-        self.freq = "d"
-        self.top_k = 5
-        self.num_kernels = 6
 
 
 # ---------------------------------------------------------
@@ -157,6 +148,7 @@ def train_model(
             outputs = model(batch_x_enc, batch_x_mark_enc)
             outputs = outputs[:, -batch_y.shape[1] :, :]
 
+            # Train on "Close"
             loss = criterion(outputs[:, :, close_idx], batch_y[:, :, close_idx])
             loss.backward()
             optimizer.step()
@@ -202,7 +194,7 @@ def evaluate_and_predict(
         X_enc = X_enc.to(device)
         X_mark_enc = base_sinusoidal.unsqueeze(0).repeat(X_enc.shape[0], 1, 1)
 
-        preds = model(X_enc, X_mark_enc)
+        preds = model(X_enc, X_mark_enc, None, None)
         preds = preds[:, -pred_len:, :].cpu()
 
     B, _, N = preds.shape
@@ -248,7 +240,7 @@ if __name__ == "__main__":
         print(f"=======================================================")
 
         X_enc, Y, scaler, train_end, val_end = prepare_sequences(
-            df, SEQ_LEN, PRED_LEN, train_ratio=0.7, val_ratio=0.15
+            df, SEQ_LEN, 0, PRED_LEN, train_ratio=0.7, val_ratio=0.15
         )
 
         X_enc_train, Y_train = X_enc[:train_end], Y[:train_end]
@@ -270,15 +262,14 @@ if __name__ == "__main__":
         results = {
             "iTransformer": {"maes": [], "rmses": [], "best_preds": None},
             "PatchTST": {"maes": [], "rmses": [], "best_preds": None},
-            "TimesNet": {"maes": [], "rmses": [], "best_preds": None},
             "LSTM": {"maes": [], "rmses": [], "best_preds": None},
+            "TSMixer": {"maes": [], "rmses": [], "best_preds": None},
         }
 
         for seed in SEEDS:
             print(f"\n--- Running Seed: {seed} ---")
             set_seed(seed)
 
-            # Khởi tạo cả 4 model cho mỗi seed[cite: 8, 9]
             models_dict = {
                 "iTransformer": iTransformerModel(
                     MockConfig_iTransformer(SEQ_LEN, PRED_LEN, NUM_VARIATES)
@@ -286,8 +277,8 @@ if __name__ == "__main__":
                 "PatchTST": PatchTSTModel(
                     MockConfig_PatchTST(SEQ_LEN, PRED_LEN, NUM_VARIATES)
                 ),
-                "TimesNet": TimesNetModel(
-                    MockConfig_TimesNet(SEQ_LEN, PRED_LEN, NUM_VARIATES)
+                "TSMixer": TSMixerModel(
+                    MockConfig_TSMixer(SEQ_LEN, PRED_LEN, NUM_VARIATES)
                 ),
                 "LSTM": LSTMModel(NUM_VARIATES, SEQ_LEN, PRED_LEN),
             }
@@ -361,15 +352,15 @@ if __name__ == "__main__":
                 alpha=0.8,
             )
             plt.plot(
-                results["TimesNet"]["best_preds"].flatten()[-plot_range:],
-                label="TimesNet",
-                color="purple",
-                alpha=0.8,
-            )
-            plt.plot(
                 results["LSTM"]["best_preds"].flatten()[-plot_range:],
                 label="LSTM",
                 color="orange",
+                alpha=0.8,
+            )
+            plt.plot(
+                results["TSMixer"]["best_preds"].flatten()[-plot_range:],
+                label="TSMixer",
+                color="purple",
                 alpha=0.8,
             )
             plt.title(f"{TICKER} - 1-Day Ahead Prediction (Last {plot_range} days)")
@@ -419,17 +410,17 @@ if __name__ == "__main__":
             )
             plt.plot(
                 time_pred,
-                results["TimesNet"]["best_preds"][sample_idx],
-                label="TimesNet",
-                color="purple",
-                marker="*",
-            )
-            plt.plot(
-                time_pred,
                 results["LSTM"]["best_preds"][sample_idx],
                 label="LSTM",
                 color="orange",
                 marker="d",
+            )
+            plt.plot(
+                time_pred,
+                results["TSMixer"]["best_preds"][sample_idx],
+                label="TSMixer",
+                color="purple",
+                marker="*",
             )
             plt.title(f"{TICKER} - {PRED_LEN}-Days Horizon Prediction")
 
@@ -438,6 +429,6 @@ if __name__ == "__main__":
         plt.legend()
         plt.grid(True, linestyle="--", alpha=0.6)
         plt.tight_layout()
-        plt.savefig(f"fihure/prediction_{PRED_LEN}day_compare_chart.png", dpi=300)
+        plt.savefig(f"figure/prediction_{PRED_LEN}day_compare_chart.png", dpi=300)
         plt.close()
         print(f"[+] Đã lưu biểu đồ: prediction_{PRED_LEN}day_compare_chart.png")

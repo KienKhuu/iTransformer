@@ -13,7 +13,7 @@ def fetch_stock_data(ticker, start_date, end_date):
         data.columns = data.columns.droplevel(1)
 
     data = data[["Open", "High", "Low", "Close", "Volume"]].copy()
-    data["Log_Return"] = np.log(data["Close"] / data["Close"].shift(1))
+    # data["Log_Return"] = np.log(data["Close"] / data["Close"].shift(1))
     data = data.dropna()
     print(f"Fetched {len(data)} rows of data.")
     return data
@@ -21,7 +21,7 @@ def fetch_stock_data(ticker, start_date, end_date):
 
 def prepare_sequences(data, seq_len, pred_len, train_ratio=0.7, val_ratio=0.15):
     """
-    Tạo X_enc (lịch sử) và Y (tương lai). Đã loại bỏ hoàn toàn X_dec.
+    Tạo X_enc (lịch sử) và Y (tương lai).
     """
     train_split_idx = int(len(data) * train_ratio)
 
