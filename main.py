@@ -194,7 +194,7 @@ def evaluate_and_predict(
         X_enc = X_enc.to(device)
         X_mark_enc = base_sinusoidal.unsqueeze(0).repeat(X_enc.shape[0], 1, 1)
 
-        preds = model(X_enc, X_mark_enc, None, None)
+        preds = model(X_enc, X_mark_enc)
         preds = preds[:, -pred_len:, :].cpu()
 
     B, _, N = preds.shape
