@@ -202,7 +202,7 @@ def evaluate_and_predict(
         X_enc = X_enc.to(device)
         X_mark_enc = base_sinusoidal.unsqueeze(0).repeat(X_enc.shape[0], 1, 1)
 
-        preds = model(X_enc, X_mark_enc, None, None)
+        preds = model(X_enc, X_mark_enc)
         preds = preds[:, -pred_len:, :].cpu()
 
     B, _, N = preds.shape
@@ -438,6 +438,6 @@ if __name__ == "__main__":
         plt.legend()
         plt.grid(True, linestyle="--", alpha=0.6)
         plt.tight_layout()
-        plt.savefig(f"prediction_{PRED_LEN}day_compare_chart.png", dpi=300)
+        plt.savefig(f"fihure/prediction_{PRED_LEN}day_compare_chart.png", dpi=300)
         plt.close()
         print(f"[+] Đã lưu biểu đồ: prediction_{PRED_LEN}day_compare_chart.png")
