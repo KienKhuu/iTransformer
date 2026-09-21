@@ -240,7 +240,7 @@ if __name__ == "__main__":
         print(f"=======================================================")
 
         X_enc, Y, scaler, train_end, val_end = prepare_sequences(
-            df, SEQ_LEN, 0, PRED_LEN, train_ratio=0.7, val_ratio=0.15
+            df, SEQ_LEN, PRED_LEN, train_ratio=0.7, val_ratio=0.15
         )
 
         X_enc_train, Y_train = X_enc[:train_end], Y[:train_end]
