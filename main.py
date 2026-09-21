@@ -11,6 +11,7 @@ from torch.utils.data import TensorDataset, DataLoader
 from model.iTransformer import Model as iTransformerModel
 from model.PatchTST import Model as PatchTSTModel
 from model.LSTM import Model as LSTMModel
+from model.TimesNet import Model as TimesNetModel
 from preprocessing import fetch_stock_data, prepare_sequences
 
 
@@ -36,8 +37,8 @@ def generate_sinusoidal_encoding(seq_len, d_mark):
 
 
 class MockConfig_iTransformer:
-
     def __init__(self, seq_len, pred_len, num_variates=None):
+        self.task_name = "long_term_forecast"
         self.seq_len = seq_len
         self.pred_len = pred_len
         self.d_model = 64
@@ -56,13 +57,12 @@ class MockConfig_iTransformer:
 
 class MockConfig_PatchTST:
     def __init__(self, seq_len, pred_len, num_variates):
+        self.task_name = "long_term_forecast"
         self.seq_len = seq_len
         self.label_len = 0
         self.pred_len = pred_len
         self.enc_in = num_variates
         self.c_out = num_variates
-
-        # PatchTST specific configs
         self.patch_len = 16
         self.stride = 8
         self.padding_patch = "end"
@@ -72,8 +72,6 @@ class MockConfig_PatchTST:
         self.decomposition = 0
         self.kernel_size = 25
         self.individual = 0
-
-        # Core Transformer configs
         self.d_model = 64
         self.n_heads = 4
         self.e_layers = 2
@@ -83,6 +81,24 @@ class MockConfig_PatchTST:
         self.head_dropout = 0.1
         self.activation = "gelu"
         self.output_attention = False
+
+
+class MockConfig_TimesNet:
+    def __init__(self, seq_len, pred_len, num_variates):
+        self.task_name = "long_term_forecast"
+        self.seq_len = seq_len
+        self.label_len = 0
+        self.pred_len = pred_len
+        self.enc_in = num_variates
+        self.c_out = num_variates
+        self.d_model = 64
+        self.d_ff = 256
+        self.e_layers = 2
+        self.dropout = 0.1
+        self.embed = "timeF"
+        self.freq = "d"
+        self.top_k = 5
+        self.num_kernels = 6
 
 
 # ---------------------------------------------------------
@@ -138,10 +154,9 @@ def train_model(
                 batch_x_enc.shape[0], 1, 1
             )
 
-            outputs = model(batch_x_enc, batch_x_mark_enc, None, None)
+            outputs = model(batch_x_enc, batch_x_mark_enc)
             outputs = outputs[:, -batch_y.shape[1] :, :]
 
-            # Train on "Close"
             loss = criterion(outputs[:, :, close_idx], batch_y[:, :, close_idx])
             loss.backward()
             optimizer.step()
@@ -255,6 +270,7 @@ if __name__ == "__main__":
         results = {
             "iTransformer": {"maes": [], "rmses": [], "best_preds": None},
             "PatchTST": {"maes": [], "rmses": [], "best_preds": None},
+            "TimesNet": {"maes": [], "rmses": [], "best_preds": None},
             "LSTM": {"maes": [], "rmses": [], "best_preds": None},
         }
 
@@ -262,12 +278,16 @@ if __name__ == "__main__":
             print(f"\n--- Running Seed: {seed} ---")
             set_seed(seed)
 
+            # Khởi tạo cả 4 model cho mỗi seed[cite: 8, 9]
             models_dict = {
                 "iTransformer": iTransformerModel(
                     MockConfig_iTransformer(SEQ_LEN, PRED_LEN, NUM_VARIATES)
                 ),
                 "PatchTST": PatchTSTModel(
                     MockConfig_PatchTST(SEQ_LEN, PRED_LEN, NUM_VARIATES)
+                ),
+                "TimesNet": TimesNetModel(
+                    MockConfig_TimesNet(SEQ_LEN, PRED_LEN, NUM_VARIATES)
                 ),
                 "LSTM": LSTMModel(NUM_VARIATES, SEQ_LEN, PRED_LEN),
             }
@@ -341,6 +361,12 @@ if __name__ == "__main__":
                 alpha=0.8,
             )
             plt.plot(
+                results["TimesNet"]["best_preds"].flatten()[-plot_range:],
+                label="TimesNet",
+                color="purple",
+                alpha=0.8,
+            )
+            plt.plot(
                 results["LSTM"]["best_preds"].flatten()[-plot_range:],
                 label="LSTM",
                 color="orange",
@@ -360,7 +386,7 @@ if __name__ == "__main__":
                 hist_unscaled[-30:],
                 label="Historical Close",
                 color="gray",
-            )  # Chỉ vẽ 30 ngày cuối cho gọn
+            )
             plt.plot(
                 time_pred,
                 actuals[sample_idx],
@@ -390,6 +416,13 @@ if __name__ == "__main__":
                 label="PatchTST",
                 color="blue",
                 marker="^",
+            )
+            plt.plot(
+                time_pred,
+                results["TimesNet"]["best_preds"][sample_idx],
+                label="TimesNet",
+                color="purple",
+                marker="*",
             )
             plt.plot(
                 time_pred,

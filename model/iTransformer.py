@@ -90,7 +90,7 @@ class Model(nn.Module):
 
         return dec_out, attns
 
-    def forward(self, x_enc, x_mark_enc):
+    def forward(self, x_enc, x_mark_enc, mask=None):
         dec_out, attns = self.forecast(x_enc, x_mark_enc)
 
         if self.output_attention:
