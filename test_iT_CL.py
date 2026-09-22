@@ -246,7 +246,7 @@ def evaluate_and_predict(
             h, means, stdev = model.encode(X_enc, X_mark_enc)
             preds = model.forecast_from_representation(h, means, stdev)
         else:
-            preds = model(X_enc, X_mark_enc, None, None)
+            preds = model(X_enc, X_mark_enc)
 
         preds = preds[:, -pred_len:, :].cpu()
 
