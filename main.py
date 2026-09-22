@@ -227,8 +227,8 @@ if __name__ == "__main__":
     SEQ_LEN = 60
     BATCH_SIZE = 32
     EPOCHS = 100
-    SEEDS = [42, 2024, 8888]
-    PRED_LENS = [1, 5]
+    SEEDS = [42, 2024]
+    PRED_LENS = [1]
 
     df = fetch_stock_data(TICKER, START_DATE, END_DATE)
     NUM_VARIATES = df.shape[1]
@@ -262,8 +262,8 @@ if __name__ == "__main__":
         results = {
             "iTransformer": {"maes": [], "rmses": [], "best_preds": None},
             "PatchTST": {"maes": [], "rmses": [], "best_preds": None},
-            "LSTM": {"maes": [], "rmses": [], "best_preds": None},
             "TSMixer": {"maes": [], "rmses": [], "best_preds": None},
+            "LSTM": {"maes": [], "rmses": [], "best_preds": None},
         }
 
         for seed in SEEDS:
