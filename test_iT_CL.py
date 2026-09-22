@@ -83,7 +83,7 @@ def train_baseline(
                 batch_x_enc.shape[0], 1, 1
             )
 
-            outputs = model(batch_x_enc, batch_x_mark_enc, None, None)
+            outputs = model(batch_x_enc, batch_x_mark_enc)
             outputs = outputs[:, -batch_y.shape[1] :, :]
             loss = criterion(outputs[:, :, close_idx], batch_y[:, :, close_idx])
 
@@ -100,7 +100,7 @@ def train_baseline(
                     batch_x_enc.shape[0], 1, 1
                 )
 
-                outputs = model(batch_x_enc, batch_x_mark_enc, None, None)
+                outputs = model(batch_x_enc, batch_x_mark_enc)
                 outputs = outputs[:, -batch_y.shape[1] :, :]
                 val_loss += criterion(
                     outputs[:, :, close_idx], batch_y[:, :, close_idx]
